@@ -13,9 +13,9 @@ public class LoginInterceptor implements HandlerInterceptor {
 
     @Override //進入controller前校驗用戶
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        // 1.獲取session
+        // TODO 1.獲取請求頭中的token
         HttpSession session = request.getSession();
-        // 2.獲取session中的用戶
+        // TODO 2.基於token獲取redis中的用戶
         Object user = session.getAttribute("user");
         // 3.判斷用戶是否存在
         if(user == null){
@@ -23,10 +23,11 @@ public class LoginInterceptor implements HandlerInterceptor {
             response.setStatus(401);
             return false;
         }
-
-        // 5.存在, 保存用戶信息到ThreadLocal
+        // TODO 5.將查詢到的Hash數據轉為UserDTO對象
+        // TODO 6.存在, 保存用戶信息到ThreadLocal
         UserHolder.saveUser((UserDTO) user);
-        // 6.執行
+        // TODO 7.刷新token有效期
+        // TODO 8.執行
         return HandlerInterceptor.super.preHandle(request, response, handler);
     }
 

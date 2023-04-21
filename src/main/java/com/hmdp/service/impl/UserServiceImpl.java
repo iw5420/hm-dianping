@@ -1,6 +1,7 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
@@ -17,10 +18,10 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.LOGIN_CODE_KEY;
-import static com.hmdp.utils.RedisConstants.LOGIN_CODE_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 
 /**
@@ -67,10 +68,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             // 2.如果不符合, 返回錯誤信息
             return Result.fail("手機號格式錯誤");
         }
-        // TODO 3.從redis獲取校驗驗證碼
-        Object cacheCode = session.getAttribute("code");
+        // 3.從redis獲取校驗驗證碼
+        String cacheCode = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
         String code = loginForm.getCode();
-        if(cacheCode == null || !cacheCode.toString().equals(code)){
+        if(cacheCode == null || !cacheCode.equals(code)){
             // 不一致, 報錯-反向校驗, 避免嵌套
             return Result.fail("驗證碼錯誤");
         }
@@ -83,13 +84,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             user = createUserWithPhone(phone);
         }
 
-        // TODO 7.保存用戶信息到redis中
-        // TODO 7.1.隨機生成token, 作為登陸令牌
-        // TODO 7.2.從User對象轉為Hash存儲
-        // TODO 7.3.存儲
-        // TODO 8.返回token
-        session.setAttribute("user", BeanUtil.copyProperties(user, UserDTO.class));
-        return Result.ok();
+        // 7.保存用戶信息到redis中
+        // 7.1.隨機生成token, 作為登陸令牌
+        String token = UUID.randomUUID().toString(true);
+        // 7.2.從User對象轉為Hash存儲
+        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+        Map<String, Object> userMap = BeanUtil.beanToMap(userDTO);
+        // 7.3.存儲
+        String tokenKey = LOGIN_USER_KEY + token;
+        stringRedisTemplate.opsForHash().putAll(tokenKey, userMap);
+        // 7.4.設置token有效期
+        stringRedisTemplate.expire(tokenKey,LOGIN_USER_TTL, TimeUnit.MINUTES);
+        // 8.返回token
+        return Result.ok(token);
     }
 
     private User createUserWithPhone(String phone) {
