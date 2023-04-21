@@ -72,7 +72,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 7.保存用戶信息到session中
         session.setAttribute("user", user);
-        return null;
+        return Result.ok();
     }
 
     private User createUserWithPhone(String phone) {
