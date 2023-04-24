@@ -35,7 +35,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public Result queryById(Long id) {
         // 緩存穿透
         // Shop shop = queryWithPassThrough(id);
+        // 互斥鎖解決緩存擊穿
         Shop shop = queryWithMutex(id);
+        if (shop == null){
+            return Result.fail("店鋪不存在");
+        }
         return Result.ok(shop);
     }
 
@@ -54,22 +58,36 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
         // 4.實現緩存重建
         // 4.1.獲取互斥鎖
-        // 4.2.判斷是否獲取成功
-        // 4.3.失敗, 則休眠並重試
+        String lockKey = "lock:shop:" + id;
+        Shop shop = null;
+        try {
+            boolean isLock = tryLock(lockKey);
+            // 4.2.判斷是否獲取成功
+            if(!isLock){
+                // 4.3.失敗, 則休眠並重試
+                Thread.sleep(50);
+                return queryWithMutex(id);
+            }
 
-        // 4.4.成功, 根據id查詢資料庫
-        Shop shop = getById(id);
-        // 5.不存在, 返回錯誤
-        if(shop == null){
-            // 將空值寫入redis
-            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
-            // 返回錯誤信息
-            return null;
+            // 4.4.成功, 根據id查詢資料庫
+            shop = getById(id);
+            // 模擬重建的延遲
+            Thread.sleep(200);
+            // 5.不存在, 返回錯誤
+            if(shop == null){
+                // 將空值寫入redis
+                stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
+                // 返回錯誤信息
+                return null;
+            }
+            // 6.存在, 寫入redis
+            stringRedisTemplate.opsForValue().set(key,JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            // 7.釋放互斥鎖
+            unlock(lockKey);
         }
-        // 6.存在, 寫入redis
-        stringRedisTemplate.opsForValue().set(key,JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
-
-        // 7.釋放互斥鎖
         // 8.返回
         return shop;
     }
