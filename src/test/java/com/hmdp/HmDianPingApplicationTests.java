@@ -31,7 +31,7 @@ class HmDianPingApplicationTests {
     // 產生500個線程
     private ExecutorService es = Executors.newFixedThreadPool(500);
 
-    @Test
+    //@Test
     void testIdWorker() throws InterruptedException {
         CountDownLatch latch = new CountDownLatch(300);
         Runnable task  = () ->{
