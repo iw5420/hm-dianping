@@ -49,7 +49,17 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (voucher.getStock() < 1) {
             return Result.fail("庫存不足! ");
         }
-        // 5.扣減庫存
+
+        // 5.一人一單
+        Long userId = UserHolder.getUser().getId();
+        // 5.1.查詢訂單
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        // 5.2.判斷是否存在
+        if(count > 0){
+            return Result.fail("用戶已經購買過一次! ");
+        }
+
+        // 6.扣減庫存
         boolean success = seckillVoucherService.update()
                 .setSql("stock = stock-1") //set stock = stock -1
                 .eq("voucher_id", voucherId).gt("stock", 0)
@@ -58,18 +68,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 扣減失敗
             return Result.fail("庫存不足!");
         }
-        // 6.創建訂單
+
+        // 7.創建訂單
         VoucherOrder voucherOrder = new VoucherOrder();
-        // 6.1訂單id
+        // 7.1訂單id
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
-        // 6.2用戶id
-        Long userId = UserHolder.getUser().getId();
+        // 7.2用戶id
         voucherOrder.setUserId(userId);
-        // 6.3代金卷id
+        // 7.3代金卷id
         voucherOrder.setVoucherId(voucherId);
         save(voucherOrder);
-        // 7.返回訂單id
+        // 8.返回訂單id
         return Result.ok(orderId);
     }
 }
