@@ -9,6 +9,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +34,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
 
     @Override
-    @Transactional
     public Result seckillVoucher(Long voucherId) {
         // 1.查詢優惠卷
         SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
@@ -49,9 +49,20 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (voucher.getStock() < 1) {
             return Result.fail("庫存不足! ");
         }
+        Long userId = UserHolder.getUser().getId();
+        //先獲取鎖, 提交事務, 再釋放鎖
+        synchronized(userId.toString().intern()){
+            // 獲取代理對象上鎖, 因為事務是綁在代理對象上面
+            IVoucherOrderService proxy = (IVoucherOrderService)AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId);
+        }
+    }
 
+    @Transactional
+    public Result createVoucherOrder(Long voucherId) {
         // 5.一人一單
         Long userId = UserHolder.getUser().getId();
+
         // 5.1.查詢訂單
         int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
         // 5.2.判斷是否存在
@@ -81,5 +92,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         save(voucherOrder);
         // 8.返回訂單id
         return Result.ok(orderId);
+
     }
 }
