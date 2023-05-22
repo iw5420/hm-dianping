@@ -7,15 +7,23 @@ import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisIdWorker;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import javax.annotation.Resource;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
+import static com.hmdp.utils.RedisConstants.SHOP_GEO_KEY;
 
 @SpringBootTest
 class HmDianPingApplicationTests {
@@ -28,6 +36,9 @@ class HmDianPingApplicationTests {
 
     @Resource
     private RedisIdWorker redisIdWorker;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
     // 產生500個線程
     private ExecutorService es = Executors.newFixedThreadPool(500);
 
@@ -57,4 +68,29 @@ class HmDianPingApplicationTests {
         cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + 1L, shop,10L, TimeUnit.SECONDS);
     }
 
+    @Test
+    void loadShopData(){
+        // 1.查詢店鋪信息
+        List<Shop> list = shopService.list();
+        // 2.把店鋪分組, 按照typeId分組, typeId一致就放到同一個集合
+        Map<Long, List<Shop>> map = list.stream().collect(Collectors.groupingBy(Shop::getTypeId));
+        // 3.分批完成寫入Redis
+        for(Map.Entry<Long, List<Shop>> entry : map.entrySet()){
+            // 3.1.獲取類型id
+            Long typeId = entry.getKey();
+            String key = SHOP_GEO_KEY + typeId;
+            // 3.2.獲取同類型的店舖的集合
+            List<Shop> value = entry.getValue();
+            List<RedisGeoCommands.GeoLocation<String>>locations = new ArrayList<>(value.size());
+            // 3.3.寫入redis GEOADD key 經度 緯度 member
+            for (Shop shop : value){
+                // stringRedisTemplate.opsForGeo().add(key, new Point(shop.getX(), shop.getY()), shop.getId().toString());
+                locations.add(new RedisGeoCommands.GeoLocation<>(
+                              shop.getId().toString(),
+                              new Point(shop.getX(), shop.getY())
+                        ));
+            }
+            stringRedisTemplate.opsForGeo().add(key, locations);
+        }
+    }
 }
