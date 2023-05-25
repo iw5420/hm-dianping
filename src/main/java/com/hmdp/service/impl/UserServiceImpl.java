@@ -12,14 +12,19 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -102,6 +107,65 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(tokenKey,LOGIN_USER_TTL, TimeUnit.MINUTES);
         // 8.返回token
         return Result.ok(token);
+    }
+
+    @Override
+    public Result sign() {
+        // 1.獲取當前登入用戶
+        Long userId = UserHolder.getUser().getId();
+        // 2.獲取日期
+        LocalDateTime now = LocalDateTime.now();
+        // 3.拼接key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+        // 4.獲取今天是本月的第幾天
+        int dayOfMonth = now.getDayOfMonth();
+        // 5.寫入Redis SETBIT key offset 1
+        stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+        // 1.獲取當前登入用戶
+        Long userId = UserHolder.getUser().getId();
+        // 2.獲取日期
+        LocalDateTime now = LocalDateTime.now();
+        // 3.拼接key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+        // 4.獲取今天是本月的第幾天
+        int dayOfMonth = now.getDayOfMonth();
+        // 5.獲取本月截止今天為止的所有簽到記錄, 返回是一個10進制的數字 BITFIELD sign:5:202203 GET u14 0
+        List<Long> result = stringRedisTemplate.opsForValue().bitField(
+                key,
+                BitFieldSubCommands.create()
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
+        );
+        if(result == null || result.isEmpty()){
+            //沒有任何簽到結果
+            return Result.ok(0);
+        }
+        Long num = result.get(0);
+        if(num == null || num == 0){
+            return Result.ok(0);
+        }
+        // 6.循環遍歷
+        int count = 0;
+        while(true) {
+            // 6.1.讓這個數字與1作與運算, 得到數字的最後一個bit位
+            // 6.2.判斷這個bit位是否為0
+            if((num & 1) == 0){
+                // 如果為0, 說明未簽到, 結束
+                break;
+            }else{
+                // 如果不為0, 說明已簽到, 計數器+1
+                count++;
+            }
+            // 把數字右移一位, 拋棄最後一個bit位,　繼續下一個bit位
+            num >>>=1;
+        }
+        return Result.ok(count);
     }
 
     private User createUserWithPhone(String phone) {
